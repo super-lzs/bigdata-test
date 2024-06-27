@@ -1,0 +1,123 @@
+version: '3'
+services:
+  namenode:
+    container_name: namenode
+    image: hoult/docker-hadoop:2.9.2
+    ports:
+    - "9000:9000"
+    - "8020:8020"
+    - "50070:50070"
+    volumes:
+    - ./hdfs-site.xml:/opt/hoult/servers/hadoop-2.9.2/etc/hadoop/hdfs-site.xml
+    - ./core-site.xml:/opt/hoult/servers/hadoop-2.9.2/etc/hadoop/core-site.xml
+    - ./hdfs-start.sh:/hdfs-start.sh
+    command: /bin/sh /hdfs-start.sh namenode
+    environment:
+    - TZ=Asia/Shanghai
+    networks:
+    - bigdata
+
+  datanode:
+    container_name: datanode
+    image: hoult/docker-hadoop:2.9.2
+    volumes:
+    - ./hdfs-site.xml:/opt/hoult/servers/hadoop-2.9.2/etc/hadoop/hdfs-site.xml
+    - ./core-site.xml:/opt/hoult/servers/hadoop-2.9.2/etc/hadoop/core-site.xml
+    - ./hdfs-start.sh:/hdfs-start.sh
+    - ./wait-for-it.sh:/wait-for-it.sh
+    command: /bin/sh /hdfs-start.sh datanode
+    environment:
+    - TZ=Asia/Shanghai
+    networks:
+    - bigdata
+
+  hive-metastore:
+    container_name: hive-metastore
+    image: bde2020/hive:2.3.2-postgresql-metastore
+    ports:
+    - "9083:9083"
+    command: /hive-start.sh hive-metastore
+    environment:
+    - TZ=Asia/Shanghai
+    networks:
+    - bigdata
+    volumes:
+    - ./hive-site.xml:/opt/hive/conf/hive-site.xml
+    - ./wait-for-it.sh:/wait-for-it.sh
+    - ./hive-start.sh:/hive-start.sh
+    depends_on:
+    - namenode
+
+  hive:
+    container_name: hive
+    image: bde2020/hive:2.3.2-postgresql-metastore
+    ports:
+    - "10000:10000"
+    environment:
+    - TZ=Asia/Shanghai
+    - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+    networks:
+    - bigdata
+    volumes:
+    - ./hive-site.xml:/opt/hive/conf/hive-site.xml
+    - ./wait-for-it.sh:/wait-for-it.sh
+    - ./hive-start.sh:/hive-start.sh
+    command: /hive-start.sh hive
+    depends_on:
+    - hive-metastore
+
+  spark-master:
+    image: bde2020/spark-master:2.4.5-hadoop2.7
+    container_name: spark-master
+    depends_on:
+    - namenode
+    environment:
+    - TZ=Asia/Shanghai
+    - INIT_DAEMON_STEP=setup_spark
+    ports:
+    - 8080:8080
+    - 7077:7077
+    - 4040:4040
+    - 18080:18080
+    - 5005:5005
+    networks:
+    - bigdata
+    command: /bin/bash /spark-master.sh hive
+    volumes:
+    - ./spark.properties:/spark/conf/spark.properties
+    - ./hive-site.xml:/spark/conf/hive-site.xml
+    - ./wait-for-it.sh:/wait-for-it.sh
+    - ./spark-master.sh:/spark-master.sh
+
+
+  spark-worker-0:
+    image: bde2020/spark-worker:2.4.5-hadoop2.7
+    container_name: spark-worker-0
+    depends_on:
+    - spark-master
+    environment:
+    - TZ=Asia/Shanghai
+    - "SPARK_MASTER=spark://spark-master:7077"
+    networks:
+    - bigdata
+    volumes:
+    - ./spark.properties:/spark/conf/spark.properties
+    - ./hive-site.xml:/spark/conf/hive-site.xml
+
+
+  spark-worker-1:
+    image: bde2020/spark-worker:2.4.5-hadoop2.7
+    container_name: spark-worker-1
+    depends_on:
+    - namenode
+    environment:
+    - TZ=Asia/Shanghai
+    - "SPARK_MASTER=spark://spark-master:7077"
+    networks:
+    - bigdata
+    volumes:
+    - ./spark.properties:/spark/conf/spark.properties
+    - ./hive-site.xml:/spark/conf/hive-site.xml
+
+networks:
+    bigdata: {}
